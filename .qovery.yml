@@ -1,0 +1,15 @@
+---
+application:
+  name: "wow1"
+  project: "wow"
+  organization: "QoveryCommunity"
+databases:
+- type: "POSTGRESQL"
+  name: "wow1"
+  version: "11"
+routers:
+- name: "main-wow1"
+  routes:
+  - application_name: "wow1"
+    paths:
+    - "/*"
