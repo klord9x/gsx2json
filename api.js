@@ -1,4 +1,12 @@
 var request = require('request');
+const _fields = {
+    'foldername':'path',
+    "filename": "name",
+    "directlink": "url",
+    "date": "date",
+    "size": "size",
+    "thumbUrl": "thumbUrl"
+}
 
 module.exports = function (req, res, next) {
     try {
@@ -9,63 +17,53 @@ module.exports = function (req, res, next) {
             useIntegers = params.integers || true,
             showRows = params.rows || true,
             showColumns = params.columns || true,
+            currentPath = '',
             url = 'https://spreadsheets.google.com/feeds/list/' + id + '/' + sheet + '/public/values?alt=json';
 
         request(url, function (error, response, body) {
             if (!error && response.statusCode === 200) {
-                var data = JSON.parse(response.body);
+                var json = JSON.parse(response.body);
                 var responseObj = {};
                 var rows = [];
-                var columns = {};
-                if (data && data.feed && data.feed.entry) {
-                    for (var i = 0; i < data.feed.entry.length; i++) {
-                        var entry = data.feed.entry[i];
-                        var keys = Object.keys(entry);
-                        var newRow = {};
-                        var queried = !query;
-                        for (var j = 0; j < keys.length; j++) {
-                            var gsxCheck = keys[j].indexOf('gsx$');
-                            if (gsxCheck > -1) {
-                                var key = keys[j];
-                                var name = key.substring(4);
-                                var content = entry[key];
-                                var value = content.$t;
-                                if (query) {
-                                    if (value.toLowerCase().indexOf(query.toLowerCase()) > -1 ) {
-                                        queried = true;
-                                    }
-                                }
-                                if (Object.keys(params).indexOf(name) > -1) {
-                                    queried = false;
-                                    if (value.toLowerCase() === params[name].toLowerCase()) {
-                                        queried = true;
-                                    }
-                                }
-                                if (useIntegers === true && !isNaN(value)) {
-                                    value = Number(value);
-                                }
-                                newRow[name] = value;
-                                if (queried === true) {
-                                    if (!columns.hasOwnProperty(name)) {
-                                        columns[name] = [];
-                                        columns[name].push(value);
-                                    } else {
-                                        columns[name].push(value);
-                                    }
-                                }
-                            }
+                const data = [] /* this array will eventually be populated with the contents of the spreadsheet's rows */
+                if (json && json.feed && json.feed.entry) {
+                    rows = json.feed.entry
+                    for(const row of rows) {
+                      const formattedRow = {}
+
+                      for(const key in row) {
+                        if(key.startsWith("gsx$")) {
+
+                          /* The actual row names from your spreadsheet
+                           * are formatted like "gsx$title".
+                           * Therefore, we need to find keys in this object
+                           * that start with "gsx$", and then strip that
+                           * out to get the actual row name
+                           */
+                          let name = key.replace("gsx$", "");
+                          if (!(name in _fields)) {
+                            continue;
+                          }
+                          name = _fields[name]
+                          formattedRow[name] = row[key].$t
+                          if (name == 'size') {
+                            formattedRow['size'] = Number(row[key].$t)
+                          }
+                          if (name == 'url') {
+                            let link = getCorrectUrl(row[key].$t)
+                            formattedRow['url'] = link
+                            formattedRow['thumbUrl'] = link + "=w289"
+                          }
+                          if (name == 'path') {
+                            currentPath = row[key].$t != "" ? row[key].$t : currentPath
+                            formattedRow['path']  = currentPath
+                          }
                         }
-                        if (queried === true) {
-                            rows.push(newRow);
-                        }
+                      }
+                      formattedRow['date'] = new Date().toLocaleString();
+                      data.push(formattedRow)
                     }
-                    if (showColumns === true) {
-                        responseObj['columns'] = columns;
-                    }
-                    if (showRows === true) {
-                        responseObj['rows'] = rows;
-                    }
-                    return res.status(200).json(responseObj);
+                    return res.status(200).json({'files' : data});
                 } else {
                     return res.status(response.statusCode).json(error);
                 }
@@ -77,3 +75,16 @@ module.exports = function (req, res, next) {
         return res.status(500).json(error);
     }
 };
+
+function getCorrectUrl(link)
+{
+  try {
+    var url = new URL(link);
+    var id = url.searchParams.get("id");
+
+    return "https://lh3.google.com/u/0/d/" + id;
+  } catch(_) {
+    
+    return link;
+  }
+}
